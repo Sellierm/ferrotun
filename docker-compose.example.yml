@@ -1,0 +1,56 @@
+# ferrotun + qBittorrent with Private Internet Access port forwarding.
+#
+#   docker build -t ferrotun:latest .
+#   docker compose -f docker-compose.example.yml up -d
+#
+# Put wg0.conf (e.g. generated with pia-wg-config) in ./config/ferrotun/.
+
+services:
+  vpn:
+    image: ferrotun:latest
+    container_name: vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
+    environment:
+      - TZ=Europe/Paris
+      - PUID=1000
+      - PGID=1000
+      - FIREWALL_OUTBOUND_SUBNETS=172.16.0.0/12,192.168.0.0/16
+      - DNS_UPSTREAM_RESOLVERS=cloudflare,quad9
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=private internet access
+      - VPN_PORT_FORWARDING_USERNAME=${PIA_USER}
+      - VPN_PORT_FORWARDING_PASSWORD=${PIA_PASS}
+      - VPN_PORT_FORWARDING_SERVER_NAME=${PIA_SERVER_NAME}   # e.g. amsterdam425
+      - QBITTORRENT_URL=http://127.0.0.1:8080
+      - QBITTORRENT_USERNAME=admin
+      - QBITTORRENT_PASSWORD=${QBIT_PASS}
+      - HTTP_CONTROL_SERVER_API_KEY=${FERROTUN_API_KEY}
+    volumes:
+      - ./config/ferrotun:/ferrotun                # wg0.conf, portforward.json
+      - ./config/ferrotun/shared:/tmp/ferrotun     # forwarded_port, ip
+    ports:
+      - 8080:8080   # qBittorrent WebUI
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    network_mode: service:vpn
+    depends_on:
+      vpn:
+        condition: service_healthy
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./downloads:/downloads
+    restart: unless-stopped
